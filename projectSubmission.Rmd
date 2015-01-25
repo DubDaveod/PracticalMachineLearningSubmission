@@ -1,0 +1,161 @@
+---
+title: "Practical Machine Learning Assignment Submission"
+output: html_document
+---
+
+##Summary
+ This project is designed to predict the manner in which 6 participants performed certain exercises 
+ using data emitted from accelerometers located on their belt, forearm, arm, and dumbell.
+ The variable "classe" in the dataset has values of A,B,C,D and E. The value A corresponds to the correct  specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+ The goal of this project is to attempt to predict the value of the classe variable based on  other variables in the dataset. This report will describe how the prediction model is built, how you used cross validation, and what the expected out of sample error is.
+
+
+```{r, echo=TRUE, warning=FALSE}
+setwd("C:/R_Coursera/PracticalMachineLearning/projectSubmission")
+set.seed(1433);
+# needed for download file function
+setInternet2(use = TRUE)
+library(ggplot2);
+library(lattice);
+library(caret);
+library(utils);
+classeVariable = 53;
+# create a dir for the task
+if (!file.exists("./data")) {dir.create("./data")}
+
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testfileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file (fileUrl, destfile="./pml-training.csv")
+
+download.file (testfileUrl, destfile="./data/pml-testing.csv")
+
+csvfilename = "./pml-training.csv"
+csvtest <- "./data/pml-testing.csv"
+
+
+
+rawtrainingdata <- read.table(csvfilename, sep=",", header = TRUE)
+rawtestingdata <- read.table(csvtest, sep=",", header = TRUE)
+
+testingdata <- read.table(csvtest, sep=",", header = TRUE)
+
+```
+
+#Explorory Data Analysis
+```{r, echo=TRUE}
+#summary(rawtrainingdata);
+```
+
+We need to acertain the data quality initially, so begin by looking at the number of variables and the % of NA variables. There are 160 variables and the % of these having NA values is 41% 
+```{r, echo=TRUE}
+dim(rawtrainingdata);
+mean(is.na(rawtrainingdata)) * 100 
+```
+So we need to eliminate many variables which have a high number of na values. 
+If a variable has > 30% na's I believe it cannot be a good predictor so will eliminate if from the model
+I will also remove variables which have unique values (as they are likely to be id's of some type) and also variables which have near zero variability.
+I also removed the factor variables for timestamps, and the user id variables as I do not consider them to be good predictors for a general algorthitm to predict classe.
+
+
+```{r, echo=TRUE}
+# get the names of the variables
+vNames <- names(rawtrainingdata)
+hasNA <- sapply(rawtrainingdata[vNames], function(x) sum(is.na(x)))
+Over30pc <- names(which(hasNA >= 0.3*nrow(rawtrainingdata)))
+stripout <- Over30pc;
+removevariables <- stripout;
+
+
+uniqueids <- which(sapply(rawtrainingdata, function(x) length(unique(x))) == nrow(rawtrainingdata))
+removevariables <- union(removevariables, names(uniqueids))
+scrubbedvars <- setdiff(vNames, removevariables)
+trainingdata<- rawtrainingdata[,scrubbedvars]
+
+nsc <- nearZeroVar(trainingdata, saveMetrics=FALSE)
+trainingdata2 <-  trainingdata[,-nsc]
+trainingdata <- trainingdata2
+
+# remove raw_timestamp_part_1
+ trainingdata <-(trainingdata [,-2])
+#remove  raw_timestamp_part_2 and  cvtd_timestamp
+trainingdata <-(trainingdata [,-3])
+ trainingdata <-(trainingdata [,-2])
+ trainingdata <-(trainingdata [,-1])
+ trainingdata <-(trainingdata [,-1])
+
+```
+This reduces the number of variables to be considered to 53.
+```{r, echo=TRUE}
+length(trainingdata)
+```
+Diving a little deeper into the data I looked at 
+running a PCA against the dataset to see which variables are highly correlated with the classe variable.
+The following will give us promising candidate variables which we should expect to see occurring in the model
+later.
+```{r, echo=TRUE}
+M<- abs(cor(trainingdata[,-classeVariable]))
+diag(M) <- 0
+p<-which (M > .99 , arr.ind=T)
+p
+
+
+```
+we can see that these variables are highly correlated with the classe variable, so lets plot some of the more promising ones
+
+First total_accel_belt, this should be a good predictor of classe A.
+```{r, echo=TRUE}
+length(trainingdata)
+plot(trainingdata$classe, trainingdata$total_accel_belt );
+```
+
+as should "accel_belt_z"", this also might be good for Classe D and E, but we need to be aware 
+that we may be overfitting the data here.
+```{r, echo=TRUE}
+plot(trainingdata$classe, trainingdata$accel_belt_z );
+```
+pitch_belt looks like a good indicator for predicting classe E., so I think this may be the best one to look at in the model 
+
+```{r, echo=TRUE}
+plot(trainingdata$classe, trainingdata$pitch_belt  );
+```
+
+
+## Cross Validation 
+Its time to start building the model properly now, and as initally we split the initial training set into a training set and a test set, and tune the model over that a number of times.
+and in order to cross validate our model.
+
+
+```{r, echo=TRUE}
+
+#
+# remove this 3
+inTrain <- createDataPartition(y=trainingdata$classe, p=0.75, list=FALSE)
+training <- trainingdata[inTrain,];
+testing <- trainingdata[-inTrain,];
+```
+I looked at a model of using the linear Discriminant Analysis for the prediction model, using a training control of 10 repeats for cross validation with the 3 variables 
+
+
+
+```{r, echo=TRUE}
+fitControl <- trainControl( method = "repeatedcv",  number = 10,   repeats = 10)
+mod_lda <- train (classe ~pitch_belt   , data=trainingdata, method = "lda" , trControl=fitControl)
+
+#mod_lda <- train (classe ~. , data=f1, method = "lda" )
+#mod_nb <- train (classe ~. , data=trainingdata, method = "nb",  trControl=fitControl )
+
+
+
+mod_lda.p <- predict(mod_lda, trainingdata)
+table(mod_lda.p , newdata= trainingdata[,classeVariable])
+
+```
+The in sample error is zero, so it looks like overfitting, but lets see what the test set is like.
+
+```{r, echo=TRUE}
+
+table(head(mod_lda.p, 20 ), newdata= testingdata$problem_id)
+
+```
+
+Looking at the variable $problem_id there is a correlation with the classe A of 100%

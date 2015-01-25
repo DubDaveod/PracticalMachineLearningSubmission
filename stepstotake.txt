@@ -1,0 +1,17 @@
+run a PCA against each of the 5 classe variables
+
+fold the training set and use the variables from the pca
+
+calculate the out of sample error
+
+repeat n  times
+
+clarify the variables used
+
+then apply model to test set provided (once) and display answers.
+
+display the out of sample error
+
+-- run against test sets
+
+
